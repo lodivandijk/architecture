@@ -1,16 +1,15 @@
-# Governed Execution Graph — Architecture Specification v0.1
+# Governed Execution Graph — Architecture Specification v0.2
 
 **Status:** Architecture baseline for implementation planning  
 **Date:** 27 October 2026  
 **Audience:** Architects, component authors, runtime developers, development agents  
-**First proof:** HQ Company reporting notifications (ORBAT, reporting calendar, Signal)  
-**Second reference case:** Semantic-view evaluation, diagnosis and regression framework
+**Reference scenarios:** Generic document ingestion, validation, iterative processing and concurrent aggregation
 
 > **Central principle:** Components govern behaviour. The graph governs permitted connectivity and data movement. The engine governs contract validation, consistent execution state, event processing and reliable message delivery.
 
 ## 1. Purpose and scope
 
-Build a **language-independent, event-driven, contract-governed execution framework** whose authoritative model is a versioned graph of components and explicit transitions. Components may be written in Java, Python, JavaScript, implemented as AI agents, or hosted as external services. The runtime does not need domain-specific knowledge of ORBATs, reporting calendars, semantic views, evaluation questions or chat approvals.
+Build a **language-independent, event-driven, contract-governed execution framework** whose authoritative model is a versioned graph of components and explicit transitions. Components may be written in Java, Python, JavaScript, implemented as AI agents, or hosted as external services. The runtime does not need domain-specific knowledge of documents, business rules, external services or human interactions.
 
 This is a **design baseline**, not a claim that all runtime edge cases have been solved. Illustrative YAML and JSON are proposed schema shapes, not a frozen wire protocol. The first implementation can be a small Java/Spring application without making the component model Java-specific.
 
@@ -77,9 +76,9 @@ flowchart TB
     I --> V --> S --> T --> D
   end
   subgraph Components[Autonomous components]
-    A[ORBAT loader / Python]
-    B[Assignment resolver / Java]
-    C[AI evaluator / agent]
+    A[Document loader / Python]
+    B[Data validator / Java]
+    C[Analysis component / agent]
     E[External watcher / service]
   end
   G --> T
@@ -111,10 +110,10 @@ A component's public contract is **data and protocol**, not a language-specific 
 
 ```yaml
 component:
-  id: orbat-loader
+  id: document-loader
   version: 1.0.0
   input:
-    schemaRef: schemas/OrbatLoadRequest/1.0.0
+    schemaRef: schemas/DocumentLoadRequest/1.0.0
   events:
     HEARTBEAT:
       schemaRef: schemas/Heartbeat/1.0.0
@@ -123,14 +122,14 @@ component:
       schemaRef: schemas/FileReceived/1.0.0
       lifecycle: ACTIVE
     COMPLETED:
-      schemaRef: schemas/OrbatSnapshot/1.0.0
+      schemaRef: schemas/DocumentSnapshot/1.0.0
       lifecycle: TERMINAL
     FAILED:
       schemaRef: schemas/FailureDetails/1.0.0
       lifecycle: TERMINAL
   adapter:
     kind: http # illustrative; in-process or broker adapters also allowed
-    endpointRef: orbat-loader-service
+    endpointRef: document-loader-service
 ```
 
 The manifest may specify transport/adapter information, but **transport is not execution semantics**. Adapters translate function returns, HTTP callbacks or broker messages into the same logical event envelope.
@@ -142,13 +141,13 @@ The manifest may specify transport/adapter information, but **transport is not e
   "eventId": "evt-105",
   "runId": "run-001",
   "invocationId": "inv-001",
-  "nodeId": "load-orbat",
+  "nodeId": "load-document",
   "componentVersion": "1.0.0",
   "eventType": "COMPLETED",
   "occurredAt": "2026-10-27T07:15:00Z",
-  "businessCorrelation": "reporting-period-2026-11",
-  "payloadSchema": "OrbatSnapshot/1.0.0",
-  "payload": {"personnelCount": 42, "orbatVersion": "2026-10"}
+  "businessCorrelation": "batch-2026-11",
+  "payloadSchema": "DocumentSnapshot/1.0.0",
+  "payload": {"recordCount": 42, "documentVersion": "2026-10"}
 }
 ```
 
@@ -170,40 +169,40 @@ Every permitted inter-component movement is an explicit edge. The engine never i
 
 ```yaml
 flow:
-  id: reporting-notification
+  id: document-processing
   version: 0.1.0
 nodes:
-  - id: load-orbat
-    component: orbat-loader@1.0.0
-  - id: load-calendar
-    component: reporting-calendar-loader@1.0.0
-  - id: resolve-assignments
-    component: assignment-resolver@1.0.0
+  - id: load-document
+    component: document-loader@1.0.0
+  - id: load-rules
+    component: rules-loader@1.0.0
+  - id: validate-records
+    component: record-validator@1.0.0
     join: ALL
-  - id: generate-message
-    component: message-generator@1.0.0
+  - id: transform-records
+    component: record-transformer@1.0.0
 transitions:
-  - id: orbat-to-resolver
-    from: load-orbat
+  - id: document-to-validator
+    from: load-document
     on: COMPLETED
-    to: resolve-assignments
+    to: validate-records
     mapping:
-      orbat: event.payload
-  - id: calendar-to-resolver
-    from: load-calendar
+      document: event.payload
+  - id: rules-to-validator
+    from: load-rules
     on: COMPLETED
-    to: resolve-assignments
+    to: validate-records
     mapping:
-      calendar: event.payload
-  - id: assignments-ready
-    from: resolve-assignments
+      rules: event.payload
+  - id: records-valid
+    from: validate-records
     on: COMPLETED
     when:
       field: event.payload.outcome
-      equals: READY
-    to: generate-message
+      equals: VALID
+    to: transform-records
     mapping:
-      assignments: event.payload.assignments
+      records: event.payload.records
 ```
 
 This YAML is a **candidate representation**. In particular, the exact grammar for event selection, field mapping, optional fields and join groups remains to be formalised before implementation.
@@ -233,16 +232,16 @@ Each invocation receives a complete, declared business input. Operational connec
 {
   "runId": "eval-run-001",
   "invocationId": "eval-inv-003",
-  "nodeId": "evaluate-question",
+  "nodeId": "analyse-record",
   "inputs": {
-    "question": "artifact-question-001",
-    "semanticView": "artifact-view-v3",
-    "evaluationHistory": "artifact-history-v2"
+    "record": "artifact-record-001",
+    "configuration": "artifact-config-v3",
+    "processingHistory": "artifact-history-v2"
   }
 }
 ```
 
-**History accumulation is explicit.** A history-accumulator component consumes the previous history artifact and a new evaluation result, then produces a **new immutable history artifact**. The engine only validates, stores and routes the references; it does not decide which prior results are relevant.
+**History accumulation is explicit.** A history-accumulator component consumes the previous history artifact and a new processing result, then produces a **new immutable history artifact**. The engine only validates, stores and routes the references; it does not decide which prior results are relevant.
 
 ```mermaid
 flowchart LR
@@ -287,8 +286,8 @@ The engine must support multiple outstanding invocations and events arriving in 
 
 ```mermaid
 flowchart TD
-  E[Evaluate question] -->|RESULT| H[Accumulate history]
-  E -->|RESULT| A[Analyse results]
+  E[Process item] -->|RESULT| H[Accumulate history]
+  E -->|RESULT| A[Analyse metrics]
   H -->|HISTORY_READY| J{AND join / activation}
   A -->|ANALYSIS_READY| J
   J --> N[Next component]
@@ -306,7 +305,7 @@ A destination with `join: ALL` becomes eligible only when **all required incomin
 
 ### 8.3 Correlation and activation
 
-- Components supply **business correlation** when business work must be associated (e.g. question A vs question B). The engine does not interpret the key.
+- Components supply **business correlation** when business work must be associated (e.g. work item A vs work item B). The engine does not interpret the key.
 - The engine creates **activation IDs** and associates incoming edges with the intended activation, so unrelated results are never joined.
 - `runId`, `invocationId`, `eventId`, `transitionId`, `activationId` and business correlation serve distinct purposes.
 - The mechanism for fan-out into N child activations and fan-in of a dynamically sized set requires an explicit correlation/cardinality contract; it is an implementation-design open question, not a licence to guess at runtime.
@@ -315,7 +314,7 @@ A destination with `join: ALL` becomes eligible only when **all required incomin
 {
   "activationId": "activation-007",
   "runId": "run-001",
-  "businessCorrelation": "question-A",
+  "businessCorrelation": "item-A",
   "destination": "combine-results",
   "requiredTransitions": ["history-to-combine", "analysis-to-combine"],
   "received": {
@@ -328,7 +327,7 @@ A destination with `join: ALL` becomes eligible only when **all required incomin
 
 ### 8.4 Consistency, not component supervision
 
-Two completion events may arrive simultaneously. Engine state changes must be atomic enough that a join is activated **once logically**. Database transactions, uniqueness constraints and a durable outbox are suitable first-implementation techniques. The engine does not resolve conflicting writes to a semantic view or other external business resources: components own optimistic locking, versions and conflict policy.
+Two completion events may arrive simultaneously. Engine state changes must be atomic enough that a join is activated **once logically**. Database transactions, uniqueness constraints and a durable outbox are suitable first-implementation techniques. The engine does not resolve conflicting writes to external business resources: components own optimistic locking, versions and conflict policy.
 
 ## 9. Event processing and observability
 
@@ -338,7 +337,7 @@ The engine processes **all declared events**, regardless of whether an outgoing 
 |---|---|---|
 | `HEARTBEAT` | Record activity/update projection | No |
 | `FILE_RECEIVED` | Record progress; no downstream file delivery yet | No |
-| `EVALUATION_PROGRESS` | Update progress view | No |
+| `PROCESSING_PROGRESS` | Update progress view | No |
 | `COMPLETED` | Record terminal result and immutable output; evaluate matching edges | No, if explicitly legitimate terminal branch |
 | `FAILED` | Record terminal failure; select explicit error route if present | No normal success route |
 
@@ -347,10 +346,10 @@ The engine processes **all declared events**, regardless of whether an outgoing 
   "eventId": "evt-102",
   "runId": "run-001",
   "invocationId": "inv-001",
-  "nodeId": "load-orbat",
+  "nodeId": "load-document",
   "eventType": "FILE_RECEIVED",
   "occurredAt": "2026-10-27T07:14:00Z",
-  "payload": {"fileName": "orbat.xlsx"}
+  "payload": {"fileName": "incoming-data.csv"}
 }
 ```
 
@@ -398,92 +397,88 @@ The exact transaction boundary and artifact blob-store/database strategy are imp
 
 ### 10.4 Replay and side effects
 
-Replay of stored events and artifacts is not equivalent to rerunning side-effecting components. A replay/inspection mode should reconstruct the historical path without resending Signal messages or repeating external writes. A deliberate re-execution is a **new run or invocation**, with explicit business safeguards.
+Replay of stored events and artifacts is not equivalent to rerunning side-effecting components. A replay/inspection mode should reconstruct the historical path without repeating external notifications or writes. A deliberate re-execution is a **new run or invocation**, with explicit business safeguards.
 
-## 11. First reference implementation: HQ Company reporting notifications
+## 11. Generic reference scenario: document processing and notification
 
-### 11.1 Business context
+This scenario demonstrates concurrent source loading, an AND join, conditional routing, progress events and an external side effect. It is illustrative and has no dependency on any particular industry or application.
 
-- Manually maintained, version-controlled Excel ORBAT is the source of personnel/reporting relationships.
-- A separate rank-based reporting calendar defines SJAR deadlines and MPAR monthly windows.
-- **SJAR:** grouped by unique 1RO–2RO pair, listing reports due and deadline.
-- **MPAR:** grouped by 1RO only, listing the applicable month-long window.
-- No report-progress tracking in the MVP.
-- Unresolved appointments/relationships must be surfaced, not guessed.
-- Service numbers and report narratives must not be included in Signal notifications; handling of personnel data must satisfy applicable MOD information-security policy.
-- Signal delivery may use unofficial `signal-cli`/adapter, initially on a Raspberry Pi or other local host; prove delivery before adding Excel ingestion.
+### 11.1 Scenario requirements
 
-### 11.2 Suggested logical nodes
+- A document loader obtains an input document and produces an immutable structured artifact.
+- A rules loader obtains a versioned set of validation rules.
+- A validator requires **both** inputs before it can execute.
+- Valid records are transformed into an output artifact; invalid records are routed to an issue handler.
+- A notification component sends an external message after validation.
+- An empty but valid document is a business outcome, not necessarily a technical failure.
+- Source retrieval and notification delivery may use any compliant transport adapter.
 
-```mermaid
-flowchart TD
-  O[Load ORBAT] -->|COMPLETED| J{AND join}
-  C[Load reporting calendar] -->|COMPLETED| J
-  J --> R[Resolve assignments]
-  R -->|READY| G[Generate notification]
-  R -->|REQUIRES_REVIEW| I[Report issues]
-  G --> V[Validate notification]
-  V -->|VALID| P[Publish via Signal]
-  V -->|INVALID| I
-  P -->|COMPLETED| F[Record delivery outcome]
-```
-
-`Load ORBAT` and `Load reporting calendar` may execute concurrently. `Resolve assignments` receives both inputs only after the AND join. A valid calendar with no report due is a legitimate business outcome, not a loader failure.
-
-### 11.3 Example message
-
-```text
-SJAR REPORTING REMINDER – SGT
-Reporting deadline: 30 November 2026
-
-1RO: WO2 Brown; 2RO: Capt Smith
-- Sgt Jones
-- Sgt Taylor
-
-1RO: CSgt Evans; 2RO: Capt Smith
-- Sgt Williams
-
-Total: 3 Sgt reports due
-Please review and highlight corrections.
-```
-
-All names and dates in this example are illustrative.
-
-### 11.4 MVP delivery plan
-
-1. **Transport proof:** invoke a mock component and send a dry-run/test Signal message; establish adapter behaviour and safe redelivery semantics.
-2. **Graph kernel:** load versioned manifests/graph; validate and process events; persist invocation and transition history.
-3. **Fan-out and AND join:** run mock ORBAT/calendar loaders; prove input correlation and exactly one logical destination activation.
-4. **Real data:** ingest Excel and reporting calendar with explicit resolution/warning contracts.
-5. **Notification formatting and validation:** implement SJAR and MPAR grouping, safe payloads and dry-run.
-6. **Operational hardening:** restart recovery, duplicate tests, delivery audit, privacy/security review.
-
-A local SQLite database and an in-process/HTTP adapter are reasonable **implementation options**, not framework requirements.
-
-## 12. Second reference implementation: semantic-view evaluation
-
-The evaluation framework has business-supplied questions/answers, judged results, rule-level diagnosis, semantic-view candidate modifications, retesting and regression. It is a stress test for cycles, concurrent work and explicit business history.
+### 11.2 Logical graph
 
 ```mermaid
 flowchart TD
-  Q[Question + candidate view + history] --> E[Evaluate question]
-  E -->|PASS| R[Regression]
-  E -->|FAIL| H[Accumulate history]
-  H --> D[Diagnose failure]
-  D --> A[Apply proposed rule]
+  D[Load document] -->|COMPLETED| J{AND join}
+  R[Load rules] -->|COMPLETED| J
+  J --> V[Validate records]
+  V -->|VALID| T[Transform records]
+  V -->|REQUIRES_REVIEW| I[Handle issues]
+  T --> C[Check output]
+  C -->|ACCEPTED| N[Send notification]
+  C -->|REJECTED| I
+  N -->|COMPLETED| F[Record outcome]
+```
+
+The loaders may execute concurrently. The validator is activated only when both required mapped artifacts have arrived for the same activation. The notification component owns its external delivery behaviour and idempotency safeguards.
+
+### 11.3 Illustrative event sequence
+
+```json
+{"eventId":"evt-1","runId":"run-1","invocationId":"inv-load","eventType":"FILE_RECEIVED","payload":{"fileName":"incoming-data.csv"}}
+```
+
+The engine records this update but does not route it. Later:
+
+```json
+{"eventId":"evt-2","runId":"run-1","invocationId":"inv-load","eventType":"COMPLETED","payload":{"artifactRef":"artifact-document-v1"}}
+```
+
+The second event may select the declared transition to the validator, but the validator remains pending until the rules-loader transition also supplies its input.
+
+### 11.4 Generic vertical-slice delivery plan
+
+1. **Transport proof:** deliver a governed invocation to a mock component and receive declared events.
+2. **Graph kernel:** load manifests and graph; validate events; persist invocation and transition history.
+3. **Fan-out and AND join:** run two mock source components; prove correlation and one logical destination activation.
+4. **Data contracts:** validate structured source data, transformation results and mapped destination inputs.
+5. **Side-effect adapter:** implement a mock notification sink with dry-run and idempotency checks.
+6. **Operational hardening:** crash recovery, duplicates, late events, authorisation and security tests.
+
+A local transactional database and in-process or HTTP adapters are reasonable initial implementation options, not framework requirements.
+
+## 12. Generic reference scenario: iterative processing and review
+
+This scenario tests cycles, explicit business-history accumulation, concurrent work, and externally mediated approval without relying on any particular business domain.
+
+```mermaid
+flowchart TD
+  Q[Item + configuration + history] --> E[Process item]
+  E -->|ACCEPTED| R[Run verification]
+  E -->|REWORK_REQUIRED| H[Accumulate history]
+  H --> D[Diagnose issue]
+  D --> A[Apply adjustment]
   A -->|UPDATED| E
   A -->|REVIEW_REQUIRED| U[Human review]
-  R -->|REGRESSION_FAILED| U
-  R -->|REGRESSION_PASSED| Z[Complete]
+  R -->|VERIFICATION_FAILED| U
+  R -->|VERIFICATION_PASSED| Z[Complete]
 ```
 
-- Each evaluation invocation receives an explicit question, semantic-view version and any required accumulated history.
-- The history accumulator, not the engine, produces the next history artifact.
-- Components decide whether to continue diagnosis, stop after business-defined limits, or request human review.
-- A human-review component can wait asynchronously for a chat response and emit intermediate updates; the engine does not own the wait duration.
-- Independent questions can execute concurrently with opaque business correlation keys.
-- Components modifying shared semantic-view candidates handle version conflicts themselves; the graph does not invent serial ordering.
-- A live graph UI can show the actual path, current outstanding invocations, progress events, selected transitions and artifact lineage.
+- Each processing invocation receives an explicit item, configuration version and required accumulated history.
+- The history accumulator, not the engine, produces the next immutable history artifact.
+- Components determine whether to continue processing, stop at a business-defined limit or request human review.
+- A review component can wait asynchronously for an external response and emit intermediate events; the engine does not control the waiting duration.
+- Independent items can execute concurrently using opaque business correlation keys.
+- Components updating shared external resources resolve conflicts themselves through domain-specific versioning or concurrency control.
+- A graph visualisation can show the actual path, outstanding invocations, progress events, selected transitions and artifact lineage.
 
 ## 13. Proposed runtime modules (logical)
 
@@ -536,13 +531,13 @@ The following should **not** be mistaken for settled decisions:
 6. **Lifecycle edge cases:** multiple terminal events, component cancellation, stale events and failed required branches.
 7. **Atomicity:** exact transaction/outbox/artifact commit protocol and adapter redelivery handling.
 8. **Idempotency contract:** required component responsibilities and behaviour when external side effects are not naturally idempotent.
-9. **Security:** identity/authentication of component event publishers, authorisation, sensitive artifact access, encryption and MOD compliance for the military proof.
+9. **Security:** identity/authentication of component event publishers, authorisation, sensitive artifact access, encryption and applicable organisational or regulatory requirements.
 10. **Retention configuration:** business-specific storage policies that do not undermine active-run recovery.
 11. **Operational safeguards:** resource limits and alerting outside business retry policy; do not silently introduce engine-driven component timeouts.
 12. **Graph version migration:** whether in-flight runs are always pinned (baseline) and how deliberate migration would work.
 13. **Initial adapters/storage:** select smallest practical local technologies after the protocol is fixed.
 
-These are candidates for ADRs during implementation, not reasons to postpone v0.1 publication.
+These are candidates for ADRs during implementation, not reasons to postpone v0.2 publication.
 
 ## 16. Suggested implementation handover to a coding agent
 
@@ -551,7 +546,7 @@ These are candidates for ADRs during implementation, not reasons to postpone v0.
 ### Deliverable A — Definitions and validation
 
 - Versioned manifest schema and graph schema.
-- Sample ORBAT graph and mock component manifests.
+- Sample generic document-processing graph and mock component manifests.
 - Preflight validator with clear diagnostics for unknown nodes/events, invalid mappings and unsatisfied input declarations.
 
 ### Deliverable B — Event-to-transition kernel
@@ -573,15 +568,15 @@ These are candidates for ADRs during implementation, not reasons to postpone v0.
 - Progress/heartbeat events with no routing.
 - Event/transition queries for a future live graph visualisation.
 
-### Deliverable E — Business proof
+### Deliverable E — Generic proof
 
-- Mock ORBAT and calendar sources; then real Excel/calendar ingestion.
-- SJAR/MPAR message generation, dry-run and Signal adapter.
+- Mock document and rules sources; then structured input ingestion.
+- Transformation, validation, dry-run and mock external-notification adapter.
 - Audit/privacy and idempotency tests before operational use.
 
 ### Agent guardrails
 
-- **Do not** implement polling cadence, component retries, business timeouts or semantic-view conflict resolution inside the engine.
+- **Do not** implement polling cadence, component retries, business timeouts or domain-specific conflict resolution inside the engine.
 - **Do not** auto-infer edges or business context from artifact history.
 - **Do not** require Java-specific component interfaces as the authoritative contract.
 - **Do not** equate `HEARTBEAT` or other progress events with a transition.
@@ -590,7 +585,7 @@ These are candidates for ADRs during implementation, not reasons to postpone v0.
 
 ## 17. Design review summary
 
-The architectural hypothesis is that a **small, language-independent event and transition kernel** can support both a simple reporting-notification process and a complex AI evaluation workflow without acquiring business-specific orchestration responsibilities.
+The architectural hypothesis is that a **small, language-independent event and transition kernel** can support both a simple document-processing pipeline and a complex iterative processing workflow without acquiring business-specific orchestration responsibilities.
 
 The first proof should demonstrate that **explicit graph edges + declared component events + immutable artifacts + correlated activations + durable delivery** are sufficient to produce a reliable, inspectable execution history. Complexity such as dynamic fan-in, distributed execution and richer graph visualisation can then be added behind stable contracts.
 
